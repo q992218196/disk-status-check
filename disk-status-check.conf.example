@@ -1,0 +1,20 @@
+# 企业微信群机器人 Webhook。建议 chmod 600 /etc/disk-status-check.conf
+WECOM_WEBHOOK_URL="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=替换为真实key"
+
+# 温度/寿命阈值
+SATA_TEMP_WARN=60
+NVME_TEMP_WARN=70
+NVME_PERCENT_USED_WARN=100
+
+# 相同告警的重复推送间隔（秒）；告警内容变化时立即推送
+NOTIFY_COOLDOWN=3600
+STATE_FILE="/var/tmp/disk-status-check.state"
+
+# CentOS/RHEL 默认使用此 RPM；Debian 未提供下面两个 URL 时也会从它提取二进制。
+STORCLI_RPM_URL="https://tools.lcayun.cn/storcli/storcli-007.2310.0000.0000-1.noarch.rpm"
+
+# Debian 可选方案：填一个直达 .deb 的 URL，或 Broadcom Unified StorCLI ZIP URL。
+# 优先级：STORCLI_DEB_URL > STORCLI_ZIP_URL > 从上面的 noarch RPM 提取。
+STORCLI_DEB_URL=""
+STORCLI_ZIP_URL=""
+
