@@ -46,9 +46,9 @@ sudo /usr/local/sbin/disk-status-check --install
 `--install` 会先安装 `smartmontools`、`nvme-cli`、`pciutils`、`curl`。只有检测到 Broadcom/LSI MegaRAID 时才安装 storcli：
 
 - CentOS/RHEL：下载配置中的 RPM 并使用 `rpm -Uvh` 安装。
-- Debian/Ubuntu：优先安装 `STORCLI_DEB_URL`；其次从 `STORCLI_ZIP_URL` 自动寻找 `storcli*.deb`；两项都未配置时，从同一个 noarch RPM 中提取 `storcli64` 到 `/usr/local/sbin`，不会污染 dpkg 数据库。
+- Debian/Ubuntu：默认安装 `https://tools.lcayun.cn/storcli/storcli_007.2705.0000.0000_all.deb`；可通过 `STORCLI_DEB_URL` 替换地址，或使用 `STORCLI_ZIP_URL` 指定 Unified ZIP。
 
-Broadcom 的 Unified StorCLI 下载包通常含 Ubuntu 使用的 `.deb`，但下载直链和版本会更新，因此没有在脚本中固化一个容易失效的官方版本 URL。若已下载官方 ZIP，也可使用 `file:///绝对路径/xxx.zip` 作为 `STORCLI_ZIP_URL`。
+若已下载 Unified StorCLI ZIP，也可使用 `file:///绝对路径/xxx.zip` 作为 `STORCLI_ZIP_URL`；使用 ZIP 时请将 `STORCLI_DEB_URL` 设为空。
 
 ## 运行
 
@@ -68,6 +68,16 @@ echo $?
 ```bash
 sudo /usr/local/sbin/disk-status-check --check --no-notify
 ```
+
+## 自定义 Webhook 主机名
+
+编辑 `/etc/disk-status-check.conf`：
+
+```bash
+MONITOR_HOSTNAME="北京机房-存储01"
+```
+
+留空时自动使用系统的 `hostname -f` 或 `hostname`。该配置只改变 Webhook 消息中显示的主机名，不修改系统主机名。
 
 ## DEBUG 推送
 

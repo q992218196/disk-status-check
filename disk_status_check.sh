@@ -4,14 +4,15 @@
 set -uo pipefail
 export LC_ALL=C
 
-VERSION="1.1.0"
+VERSION="1.1.1"
 DEFAULT_CONFIG_FILE="/etc/disk-status-check.conf"
 CONFIG_FILE="${DISK_CHECK_CONFIG:-$DEFAULT_CONFIG_FILE}"
 
 # These values may be overridden by the config file or environment.
 WECOM_WEBHOOK_URL="${WECOM_WEBHOOK_URL:-}"
+MONITOR_HOSTNAME="${MONITOR_HOSTNAME:-}"
 STORCLI_RPM_URL="${STORCLI_RPM_URL:-https://tools.lcayun.cn/storcli/storcli-007.2310.0000.0000-1.noarch.rpm}"
-STORCLI_DEB_URL="${STORCLI_DEB_URL:-}"
+STORCLI_DEB_URL="${STORCLI_DEB_URL:-https://tools.lcayun.cn/storcli/storcli_007.2705.0000.0000_all.deb}"
 STORCLI_ZIP_URL="${STORCLI_ZIP_URL:-}"
 SATA_TEMP_WARN="${SATA_TEMP_WARN:-60}"
 NVME_TEMP_WARN="${NVME_TEMP_WARN:-70}"
@@ -92,6 +93,14 @@ warn() { WARN_MESSAGES+=("$*"); }
 error() { ERROR_MESSAGES+=("$*"); }
 have() { command -v "$1" >/dev/null 2>&1; }
 is_uint() { [[ "${1:-}" =~ ^[0-9]+$ ]]; }
+
+display_hostname() {
+    if [[ -n "${MONITOR_HOSTNAME:-}" ]]; then
+        printf '%s\n' "$MONITOR_HOSTNAME"
+    else
+        hostname -f 2>/dev/null || hostname
+    fi
+}
 
 detect_os() {
     OS_ID="unknown"
@@ -564,7 +573,7 @@ send_wecom() {
 build_alert_text() {
     local title="$1" message line
     message="### $title"$'\n'
-    message+="> 主机：$(hostname -f 2>/dev/null || hostname)"$'\n'
+    message+="> 主机：$(display_hostname)"$'\n'
     message+="> 时间：$(date '+%F %T %z')"$'\n'
     message+="> 系统：$OS_NAME"$'\n\n'
     for line in "${ERROR_MESSAGES[@]}"; do message+="- <font color=\"warning\">严重：$line</font>"$'\n'; done

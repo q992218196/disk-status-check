@@ -2,6 +2,9 @@
 # 示例：https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=替换为真实key
 WECOM_WEBHOOK_URL=""
 
+# Webhook 中显示的主机名；留空时自动使用 hostname -f/hostname。
+MONITOR_HOSTNAME=""
+
 # 温度/寿命阈值
 SATA_TEMP_WARN=60
 NVME_TEMP_WARN=70
@@ -14,11 +17,11 @@ NOTIFY_COOLDOWN=3600
 DEBUG_NOTIFY=0
 STATE_FILE="/var/tmp/disk-status-check.state"
 
-# CentOS/RHEL 默认使用此 RPM；Debian 未提供下面两个 URL 时也会从它提取二进制。
+# CentOS/RHEL 默认使用此 RPM；Debian 的 DEB/ZIP 均未配置时从它提取二进制。
 STORCLI_RPM_URL="https://tools.lcayun.cn/storcli/storcli-007.2310.0000.0000-1.noarch.rpm"
 
-# Debian 可选方案：填一个直达 .deb 的 URL，或 Broadcom Unified StorCLI ZIP URL。
+# Debian/Ubuntu 默认使用以下 .deb；也可改为其他直达 URL。
 # 优先级：STORCLI_DEB_URL > STORCLI_ZIP_URL > 从上面的 noarch RPM 提取。
-STORCLI_DEB_URL=""
+STORCLI_DEB_URL="https://tools.lcayun.cn/storcli/storcli_007.2705.0000.0000_all.deb"
 STORCLI_ZIP_URL=""
 
