@@ -4,7 +4,7 @@
 set -uo pipefail
 export LC_ALL=C
 
-VERSION="1.0.0"
+VERSION="1.0.1"
 DEFAULT_CONFIG_FILE="/etc/disk-status-check.conf"
 CONFIG_FILE="${DISK_CHECK_CONFIG:-$DEFAULT_CONFIG_FILE}"
 
@@ -26,6 +26,7 @@ declare -a OK_MESSAGES=()
 declare -a INFO_MESSAGES=()
 declare -a WARN_MESSAGES=()
 declare -a ERROR_MESSAGES=()
+declare -A MEGARAID_VIRTUAL_DISKS=()
 
 usage() {
     cat <<'EOF'
@@ -290,7 +291,7 @@ check_software_raid() {
 }
 
 check_storcli() {
-    local cli output rc controllers pci controller_output vd_output pd_output
+    local cli output rc controllers pci controller_output vd_output vd_detail_output pd_output
     pci="$(raid_pci_lines)"
     if [[ -z "$pci" ]]; then
         info "硬件 RAID：未发现 PCI RAID 控制器"
@@ -323,7 +324,7 @@ check_storcli() {
     fi
     info "storcli：$cli，共识别 $controllers 个控制器"
 
-    local c state row bad_count
+    local c state row bad_count os_drive
     for ((c = 0; c < controllers; c++)); do
         controller_output="$("$cli" /c$c show 2>&1)"
         rc=$?
@@ -353,6 +354,22 @@ check_storcli() {
                 fi
             done < <(awk '$1 ~ /^[0-9]+\/[0-9]+$/ {print}' <<<"$vd_output")
             ((bad_count == 0)) && ok "RAID /c$c 所有虚拟盘均为 Optimal"
+        fi
+
+        # StorCLI can expose the Linux block-device name for each virtual
+        # drive. Remember it so the OS disk pass does not treat the virtual
+        # disk as a directly attached SMART-capable physical disk.
+        vd_detail_output="$("$cli" /c$c/vall show all 2>&1)"
+        if (($? == 0)); then
+            while IFS= read -r os_drive; do
+                [[ "$os_drive" == /dev/* ]] || continue
+                MEGARAID_VIRTUAL_DISKS["$os_drive"]=1
+                info "MegaRAID 虚拟盘映射：$os_drive"
+            done < <(awk -F= '/^[[:space:]]*OS Drive Name[[:space:]]*=/ {
+                sub(/^[^=]*=[[:space:]]*/, "", $0)
+                sub(/[[:space:]]+$/, "", $0)
+                print $0
+            }' <<<"$vd_detail_output")
         fi
 
         pd_output="$("$cli" /c$c/eall/sall show 2>&1)"
@@ -397,7 +414,10 @@ check_smart_disk() {
     rc=$?
     health="$(grep -Ei 'SMART overall-health.*:|SMART Health Status:' <<<"$output" | tail -n 1 || true)"
 
-    if grep -Eiq '(FAILED|BAD|FAILING)' <<<"$health" || ((rc & 8)); then
+    if grep -Eiq 'DELL or MegaRaid controller|try adding.*-d[[:space:]]+megaraid' <<<"$output"; then
+        info "$dev 是 MegaRAID 虚拟盘，普通 SMART 不适用（物理盘状态由 storcli 检查）"
+        return
+    elif grep -Eiq '(FAILED|BAD|FAILING)' <<<"$health" || ((rc & 8)); then
         error "$dev SMART 健康检查失败：${health:-smartctl rc=$rc}"
         bad=1
     elif grep -Eiq '(PASSED|OK)' <<<"$health"; then
@@ -492,6 +512,8 @@ check_os_visible_disks() {
                 nvme_controllers+=("$ctrl")
                 seen+="$ctrl "
             fi
+        elif [[ "${MEGARAID_VIRTUAL_DISKS[$dev]:-}" == "1" ]]; then
+            info "$dev 是 MegaRAID 虚拟盘，跳过普通 SMART（物理盘状态由 storcli 检查）"
         elif have smartctl; then
             check_smart_disk "$dev"
         else

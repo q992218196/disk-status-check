@@ -84,6 +84,7 @@ sudo /usr/local/sbin/disk-status-check --check --no-notify
 - NVMe：`critical_warning != 0`、备用空间低于阈值、`media_errors > 0` 为异常；温度和寿命使用量达到配置阈值为警告。
 - SATA/SAS：SMART 总体状态失败，或属性 5/187/197/198 的原始值大于 0 为异常；温度达到阈值为警告。
 - MegaRAID：虚拟盘非 `Optl`、物理盘不在 `Onln/UGood/GHS/DHS/JBOD` 中为异常；重建/回拷等过程为警告。
+- MegaRAID 暴露给 Linux 的 `/dev/sdX` 虚拟盘会跳过普通 SMART，避免把需要 `-d megaraid,N` 透传的正常情况误报为警告。
 - md RAID：成员状态含 `_` 或阵列 inactive 为异常；恢复、同步、reshape 等后台任务为警告。
 
 首次部署建议先执行 `--check --no-notify`，核对服务器控制器和磁盘型号的输出，再启用 Webhook 与 cron。
