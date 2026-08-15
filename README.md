@@ -18,11 +18,14 @@
 curl -fsSL https://gitee.com/q992218196/disk-status-check/raw/main/install.sh | sudo bash
 ```
 
-同时配置企业微信 Webhook，并创建每 5 分钟执行一次的定时任务：
+同时配置企业微信 Webhook、自定义 `MONITOR_HOSTNAME`，并创建每 5 分钟执行一次的定时任务：
 
 ```bash
 curl -fsSL https://gitee.com/q992218196/disk-status-check/raw/main/install.sh \
-  | sudo bash -s -- --webhook 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的key' --cron
+  | sudo bash -s -- \
+      --webhook 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的key' \
+      --hostname '北京机房-存储01' \
+      --cron
 ```
 
 只想临时运行、不安装文件和依赖：

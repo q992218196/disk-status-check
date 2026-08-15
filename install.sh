@@ -12,6 +12,7 @@ CRON_PATH="${DISK_CHECK_CRON_PATH:-/etc/cron.d/disk-status-check}"
 STATE_PATH="${DISK_CHECK_STATE_PATH:-/var/tmp/disk-status-check.state}"
 
 WEBHOOK=""
+MONITOR_NAME=""
 INSTALL_DEPS=1
 RUN_CHECK=1
 ENABLE_CRON=0
@@ -23,6 +24,7 @@ usage() {
 
 选项：
   --webhook URL   写入企业微信机器人 Webhook
+  --hostname NAME 写入 Webhook 显示名称（MONITOR_HOSTNAME）
   --cron          创建每 5 分钟运行一次的 cron 任务
   --no-deps       只安装脚本和配置，不安装系统依赖
   --no-check      安装完成后不执行首次检测
@@ -39,6 +41,11 @@ while (($#)); do
         --webhook)
             [[ $# -ge 2 ]] || { echo "--webhook 缺少 URL" >&2; exit 2; }
             WEBHOOK="$2"
+            shift
+            ;;
+        --hostname)
+            [[ $# -ge 2 ]] || { echo "--hostname 缺少名称" >&2; exit 2; }
+            MONITOR_NAME="$2"
             shift
             ;;
         --cron) ENABLE_CRON=1 ;;
@@ -118,6 +125,12 @@ if [[ -n "$WEBHOOK" ]]; then
     sed -i '/^[[:space:]]*WECOM_WEBHOOK_URL=/d' "$CONFIG_PATH"
     printf 'WECOM_WEBHOOK_URL=%q\n' "$WEBHOOK" >> "$CONFIG_PATH"
     echo "已写入企业微信 Webhook"
+fi
+
+if [[ -n "$MONITOR_NAME" ]]; then
+    sed -i '/^[[:space:]]*MONITOR_HOSTNAME=/d' "$CONFIG_PATH"
+    printf 'MONITOR_HOSTNAME=%q\n' "$MONITOR_NAME" >> "$CONFIG_PATH"
+    echo "已写入 Webhook 显示名称：$MONITOR_NAME"
 fi
 
 echo "[3/4] 安装检测依赖"
