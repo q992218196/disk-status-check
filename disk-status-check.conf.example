@@ -1,5 +1,6 @@
-# 企业微信群机器人 Webhook。建议 chmod 600 /etc/disk-status-check.conf
-WECOM_WEBHOOK_URL="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=替换为真实key"
+# 企业微信群机器人 Webhook。未配置时留空；建议 chmod 600 配置文件。
+# 示例：https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=替换为真实key
+WECOM_WEBHOOK_URL=""
 
 # 温度/寿命阈值
 SATA_TEMP_WARN=60

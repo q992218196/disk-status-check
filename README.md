@@ -10,7 +10,31 @@
 
 发现异常后可通过企业微信群机器人 Webhook 推送；相同告警默认一小时最多推送一次，告警变化立即推送，恢复后推送恢复消息。
 
-## 安装
+## curl 一键安装
+
+安装脚本、系统依赖并执行一次不推送消息的检测：
+
+```bash
+curl -fsSL https://gitee.com/q992218196/disk-status-check/raw/main/install.sh | sudo bash
+```
+
+同时配置企业微信 Webhook，并创建每 5 分钟执行一次的定时任务：
+
+```bash
+curl -fsSL https://gitee.com/q992218196/disk-status-check/raw/main/install.sh \
+  | sudo bash -s -- --webhook 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=你的key' --cron
+```
+
+只想临时运行、不安装文件和依赖：
+
+```bash
+curl -fsSL https://gitee.com/q992218196/disk-status-check/raw/main/disk_status_check.sh \
+  | sudo bash -s -- --check --no-notify
+```
+
+> `curl | bash` 会直接执行远程代码。生产环境可先用 `curl -fsSLO URL` 下载并检查内容，再使用 `sudo bash install.sh` 执行。可通过 `--ref 标签名` 固定安装版本。
+
+## 手动安装
 
 ```bash
 sudo install -m 0755 disk_status_check.sh /usr/local/sbin/disk-status-check
