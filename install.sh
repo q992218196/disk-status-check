@@ -9,11 +9,13 @@ RAW_BASE="${DISK_CHECK_RAW_BASE:-${REPO}/raw/${REF}}"
 INSTALL_PATH="${DISK_CHECK_INSTALL_PATH:-/usr/local/sbin/disk-status-check}"
 CONFIG_PATH="${DISK_CHECK_CONFIG_PATH:-/etc/disk-status-check.conf}"
 CRON_PATH="${DISK_CHECK_CRON_PATH:-/etc/cron.d/disk-status-check}"
+STATE_PATH="${DISK_CHECK_STATE_PATH:-/var/tmp/disk-status-check.state}"
 
 WEBHOOK=""
 INSTALL_DEPS=1
 RUN_CHECK=1
 ENABLE_CRON=0
+UNINSTALL=0
 
 usage() {
     cat <<'EOF'
@@ -24,6 +26,7 @@ usage() {
   --cron          创建每 5 分钟运行一次的 cron 任务
   --no-deps       只安装脚本和配置，不安装系统依赖
   --no-check      安装完成后不执行首次检测
+  --uninstall     卸载脚本和定时任务，保留配置及所有依赖
   --ref REF       从指定分支或标签安装（默认 main）
   -h, --help      显示帮助
 
@@ -41,6 +44,7 @@ while (($#)); do
         --cron) ENABLE_CRON=1 ;;
         --no-deps) INSTALL_DEPS=0 ;;
         --no-check) RUN_CHECK=0 ;;
+        --uninstall) UNINSTALL=1 ;;
         --ref)
             [[ $# -ge 2 ]] || { echo "--ref 缺少分支或标签" >&2; exit 2; }
             REF="$2"
@@ -56,6 +60,18 @@ done
 if [[ $EUID -ne 0 ]]; then
     echo "请使用 root 运行，例如：curl -fsSL .../install.sh | sudo bash" >&2
     exit 2
+fi
+
+if ((UNINSTALL)); then
+    echo "卸载 Disk Status Check"
+    rm -f -- "$INSTALL_PATH" "$CRON_PATH" "$STATE_PATH"
+    echo "已删除程序：$INSTALL_PATH"
+    echo "已删除定时任务：$CRON_PATH"
+    if [[ -e "$CONFIG_PATH" ]]; then
+        echo "保留配置：$CONFIG_PATH"
+    fi
+    echo "已保留 smartmontools、nvme-cli、pciutils、curl 和 storcli 等依赖。"
+    exit 0
 fi
 
 if [[ -n "$WEBHOOK" && ! "$WEBHOOK" =~ ^https://qyapi\.weixin\.qq\.com/cgi-bin/webhook/send\?key= ]]; then

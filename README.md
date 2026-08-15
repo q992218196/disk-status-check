@@ -8,7 +8,7 @@
 - Broadcom/LSI MegaRAID 的控制器、虚拟盘、物理盘和缓存保护状态（`storcli`）
 - 其他品牌硬件 RAID 会明确提示“后端盘未覆盖”，不会假装检查正常
 
-发现异常后可通过企业微信群机器人 Webhook 推送；相同告警默认一小时最多推送一次，告警变化立即推送，恢复后推送恢复消息。
+默认仅在存在警告或异常时通过企业微信群机器人 Webhook 推送；相同告警默认一小时最多推送一次。`--debug` 模式会忽略冷却并在每次检测后推送，适合验证 Webhook。
 
 ## curl 一键安装
 
@@ -68,6 +68,27 @@ echo $?
 ```bash
 sudo /usr/local/sbin/disk-status-check --check --no-notify
 ```
+
+## DEBUG 推送
+
+无论检测结果是否正常，每次都推送 Webhook：
+
+```bash
+sudo /usr/local/sbin/disk-status-check --check --debug
+```
+
+也可以在配置文件中设置 `DEBUG_NOTIFY=1`。生产环境建议保持为 `0`。
+
+## 卸载
+
+通过 curl 卸载：
+
+```bash
+curl -fsSL https://gitee.com/q992218196/disk-status-check/raw/main/install.sh \
+  | sudo bash -s -- --uninstall
+```
+
+卸载会删除程序、cron 定时任务和告警状态文件，但保留 `/etc/disk-status-check.conf`、日志以及 smartmontools、nvme-cli、pciutils、curl、storcli 等依赖。
 
 ## 定时执行
 

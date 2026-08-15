@@ -4,7 +4,7 @@
 set -uo pipefail
 export LC_ALL=C
 
-VERSION="1.0.1"
+VERSION="1.1.0"
 DEFAULT_CONFIG_FILE="/etc/disk-status-check.conf"
 CONFIG_FILE="${DISK_CHECK_CONFIG:-$DEFAULT_CONFIG_FILE}"
 
@@ -18,6 +18,7 @@ NVME_TEMP_WARN="${NVME_TEMP_WARN:-70}"
 NVME_PERCENT_USED_WARN="${NVME_PERCENT_USED_WARN:-100}"
 NOTIFY_COOLDOWN="${NOTIFY_COOLDOWN:-3600}"
 STATE_FILE="${STATE_FILE:-/var/tmp/disk-status-check.state}"
+DEBUG_NOTIFY="${DEBUG_NOTIFY:-0}"
 
 MODE="check"
 NOTIFY=1
@@ -31,7 +32,7 @@ declare -A MEGARAID_VIRTUAL_DISKS=()
 usage() {
     cat <<'EOF'
 用法：
-  disk_status_check.sh [--check] [--no-notify] [--webhook URL]
+  disk_status_check.sh [--check] [--no-notify] [--debug] [--webhook URL]
   disk_status_check.sh --install
 
 选项：
@@ -40,6 +41,7 @@ usage() {
                    Broadcom/LSI MegaRAID 时再安装 storcli
   --webhook URL    本次运行使用的企业微信机器人 Webhook
   --no-notify      只输出结果，不推送企业微信
+  --debug          每次检测都推送 Webhook，忽略告警冷却（调试用）
   --config FILE    指定配置文件（默认 /etc/disk-status-check.conf）
   -h, --help       显示帮助
   -V, --version    显示版本
@@ -67,6 +69,7 @@ while (($#)); do
         --check) MODE="check" ;;
         --install) MODE="install" ;;
         --no-notify) NOTIFY=0 ;;
+        --debug) DEBUG_NOTIFY=1 ;;
         --webhook)
             [[ $# -ge 2 ]] || { echo "--webhook 缺少 URL" >&2; exit 2; }
             WECOM_WEBHOOK_URL="$2"
@@ -566,11 +569,14 @@ build_alert_text() {
     message+="> 系统：$OS_NAME"$'\n\n'
     for line in "${ERROR_MESSAGES[@]}"; do message+="- <font color=\"warning\">严重：$line</font>"$'\n'; done
     for line in "${WARN_MESSAGES[@]}"; do message+="- <font color=\"comment\">警告：$line</font>"$'\n'; done
+    if ((${#ERROR_MESSAGES[@]} == 0 && ${#WARN_MESSAGES[@]} == 0)); then
+        message+="- <font color=\"info\">正常：所有已检测项目均正常</font>"$'\n'
+    fi
     printf '%s' "${message:0:3800}"
 }
 
 notify_if_needed() {
-    local now hash old_hash="" old_time=0 old_status="ok" current status content
+    local now hash old_hash="" old_time=0 old_status="ok" current status content debug_title
     NOTIFY_FAILED=0
     status="ok"
     current=""
@@ -591,8 +597,26 @@ notify_if_needed() {
         is_uint "$old_time" || old_time=0
     fi
 
-    if ((NOTIFY == 0)) || [[ -z "$WECOM_WEBHOOK_URL" ]]; then
-        [[ -z "$WECOM_WEBHOOK_URL" ]] && info "未配置企业微信 Webhook，本次不推送"
+    if ((NOTIFY == 0)); then
+        info "企业微信通知已禁用"
+    elif [[ -z "$WECOM_WEBHOOK_URL" ]]; then
+        if ((DEBUG_NOTIFY)); then
+            warn "DEBUG 模式已启用，但未配置企业微信 Webhook"
+        else
+            info "未配置企业微信 Webhook，本次不推送"
+        fi
+    elif ((DEBUG_NOTIFY)); then
+        if [[ "$status" == "alert" ]]; then
+            debug_title="磁盘监控 DEBUG（存在告警）"
+        else
+            debug_title="磁盘监控 DEBUG（状态正常）"
+        fi
+        content="$(build_alert_text "$debug_title")"
+        if send_wecom "$content"; then
+            info "DEBUG 模式：已强制推送企业微信"
+        else
+            NOTIFY_FAILED=1
+        fi
     elif [[ "$status" == "alert" ]]; then
         if [[ "$hash" != "$old_hash" ]] || ((now - old_time >= NOTIFY_COOLDOWN)); then
             content="$(build_alert_text "磁盘监控告警")"
@@ -600,14 +624,13 @@ notify_if_needed() {
         else
             info "告警未变化且仍在冷却期内，不重复推送"
         fi
-    elif [[ "$old_status" == "alert" ]]; then
-        content="### 磁盘监控恢复"$'\n'"> 主机：$(hostname -f 2>/dev/null || hostname)"$'\n'"> 时间：$(date '+%F %T %z')"$'\n\n'"所有已检测项目恢复正常。"
-        send_wecom "$content" || NOTIFY_FAILED=1
+    else
+        info "检测结果无警告/异常，不推送企业微信"
     fi
 
-    # Do not advance notification state when delivery is disabled or failed;
-    # otherwise enabling a webhook later could suppress the first real alert.
-    if [[ -n "$STATE_FILE" && -n "$WECOM_WEBHOOK_URL" && $NOTIFY -eq 1 && $NOTIFY_FAILED -eq 0 ]]; then
+    # Debug pushes do not alter production alert-deduplication state.
+    if [[ -n "$STATE_FILE" && -n "$WECOM_WEBHOOK_URL" && $NOTIFY -eq 1 &&
+          $DEBUG_NOTIFY -eq 0 && $NOTIFY_FAILED -eq 0 ]]; then
         umask 077
         printf '%s|%s|%s\n' "$hash" "$now" "$status" > "$STATE_FILE" 2>/dev/null || true
     fi

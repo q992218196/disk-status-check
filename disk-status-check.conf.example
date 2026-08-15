@@ -7,8 +7,11 @@ SATA_TEMP_WARN=60
 NVME_TEMP_WARN=70
 NVME_PERCENT_USED_WARN=100
 
-# 相同告警的重复推送间隔（秒）；告警内容变化时立即推送
+# 默认仅在存在警告/异常时推送；相同告警内容按以下秒数冷却。
 NOTIFY_COOLDOWN=3600
+
+# 调试开关：1=每次检测都推送，忽略冷却；生产环境请保持 0。
+DEBUG_NOTIFY=0
 STATE_FILE="/var/tmp/disk-status-check.state"
 
 # CentOS/RHEL 默认使用此 RPM；Debian 未提供下面两个 URL 时也会从它提取二进制。
