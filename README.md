@@ -18,6 +18,21 @@
 curl -fsSL https://gitee.com/q992218196/disk-status-check/raw/main/install.sh | sudo bash
 ```
 
+如果服务器访问 Gitee 较慢，可给 Raw 地址加代理前缀，并向安装器传入 `--proxy-url`：
+
+```bash
+curl -fsSL https://proxydl.lcayun.cn/https://gitee.com/q992218196/disk-status-check/raw/main/install.sh \
+  | sudo bash -s -- --proxy-url
+```
+
+`--proxy-url` 默认使用 `https://proxydl.lcayun.cn`，也可以写成兼容参数 `proxy_url`，或使用 `--proxy-url https://你的代理地址`。它会把安装器后续的 Gitee 下载地址转换为：
+
+```text
+https://proxydl.lcayun.cn/https://gitee.com/原始路径
+```
+
+README 中其他以 `https://gitee.com` 开头的 Raw 地址也可以直接加上同样的代理前缀。
+
 同时配置企业微信 Webhook、自定义 `MONITOR_HOSTNAME`，并创建每 5 分钟执行一次的定时任务：
 
 ```bash
@@ -32,6 +47,13 @@ curl -fsSL https://gitee.com/q992218196/disk-status-check/raw/main/install.sh \
 
 ```bash
 curl -fsSL https://gitee.com/q992218196/disk-status-check/raw/main/disk_status_check.sh \
+  | sudo bash -s -- --check --no-notify
+```
+
+代理方式：
+
+```bash
+curl -fsSL https://proxydl.lcayun.cn/https://gitee.com/q992218196/disk-status-check/raw/main/disk_status_check.sh \
   | sudo bash -s -- --check --no-notify
 ```
 
@@ -99,6 +121,10 @@ sudo /usr/local/sbin/disk-status-check --check --debug
 ```bash
 curl -fsSL https://gitee.com/q992218196/disk-status-check/raw/main/install.sh \
   | sudo bash -s -- --uninstall
+
+# Gitee 无法直连时
+curl -fsSL https://proxydl.lcayun.cn/https://gitee.com/q992218196/disk-status-check/raw/main/install.sh \
+  | sudo bash -s -- --proxy-url --uninstall
 ```
 
 卸载会删除程序、cron 定时任务和告警状态文件，但保留 `/etc/disk-status-check.conf`、日志以及 smartmontools、nvme-cli、pciutils、curl、storcli 等依赖。

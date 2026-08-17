@@ -4,8 +4,10 @@
 set -Eeuo pipefail
 
 REPO="${DISK_CHECK_REPO:-https://gitee.com/q992218196/disk-status-check}"
+DEFAULT_PROXY_URL="https://proxydl.lcayun.cn"
 REF="${DISK_CHECK_REF:-main}"
 RAW_BASE="${DISK_CHECK_RAW_BASE:-${REPO}/raw/${REF}}"
+PROXY_URL="${DISK_CHECK_PROXY_URL:-}"
 INSTALL_PATH="${DISK_CHECK_INSTALL_PATH:-/usr/local/sbin/disk-status-check}"
 CONFIG_PATH="${DISK_CHECK_CONFIG_PATH:-/etc/disk-status-check.conf}"
 CRON_PATH="${DISK_CHECK_CRON_PATH:-/etc/cron.d/disk-status-check}"
@@ -25,6 +27,7 @@ usage() {
 选项：
   --webhook URL   写入企业微信机器人 Webhook
   --hostname NAME 写入 Webhook 显示名称（MONITOR_HOSTNAME）
+  --proxy-url [URL] 为 Gitee Raw 下载添加代理前缀
   --cron          创建每 5 分钟运行一次的 cron 任务
   --no-deps       只安装脚本和配置，不安装系统依赖
   --no-check      安装完成后不执行首次检测
@@ -48,6 +51,18 @@ while (($#)); do
             MONITOR_NAME="$2"
             shift
             ;;
+        --proxy-url)
+            PROXY_URL="$DEFAULT_PROXY_URL"
+            if [[ $# -ge 2 && "$2" != --* ]]; then
+                PROXY_URL="$2"
+                shift
+            fi
+            ;;
+        proxy_url) PROXY_URL="$DEFAULT_PROXY_URL" ;;
+        proxy_url=*)
+            PROXY_URL="${1#proxy_url=}"
+            [[ -n "$PROXY_URL" ]] || PROXY_URL="$DEFAULT_PROXY_URL"
+            ;;
         --cron) ENABLE_CRON=1 ;;
         --no-deps) INSTALL_DEPS=0 ;;
         --no-check) RUN_CHECK=0 ;;
@@ -63,6 +78,19 @@ while (($#)); do
     esac
     shift
 done
+
+if [[ -n "$PROXY_URL" ]]; then
+    case "$PROXY_URL" in
+        http://*|https://*) ;;
+        *) echo "无效的代理地址：$PROXY_URL" >&2; exit 2 ;;
+    esac
+    PROXY_URL="${PROXY_URL%/}"
+    case "$RAW_BASE" in
+        "$PROXY_URL"/*) ;;
+        https://gitee.com/*) RAW_BASE="$PROXY_URL/$RAW_BASE" ;;
+        *) echo "--proxy-url 只能用于 https://gitee.com Raw 地址" >&2; exit 2 ;;
+    esac
+fi
 
 if [[ $EUID -ne 0 ]]; then
     echo "请使用 root 运行，例如：curl -fsSL .../install.sh | sudo bash" >&2
