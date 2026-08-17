@@ -18,6 +18,19 @@
 curl -fsSL https://gitee.com/q992218196/disk-status-check/raw/main/install.sh | sudo bash
 ```
 
+安装器默认使用 `--source auto`：识别公网 IP 归属地，中国大陆 IP 使用 Gitee，其他国家或地区使用 GitHub。归属地接口不可用时会通过连通性选择下载源；首选源下载失败时会自动切换另一个源。也可以从 GitHub 启动同一个安装器：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/q992218196/disk-status-check/main/install.sh | sudo bash
+```
+
+手动固定下载源可传入 `--source gitee` 或 `--source github`。自动判断结果也可以通过环境变量覆盖，便于内网或出口 IP 特殊的机器使用：
+
+```bash
+curl -fsSL https://gitee.com/q992218196/disk-status-check/raw/main/install.sh \
+  | sudo DISK_CHECK_COUNTRY_CODE=CN bash -s -- --source auto
+```
+
 如果服务器访问 Gitee 较慢，可给 Raw 地址加代理前缀，并向安装器传入 `--proxy-url`：
 
 ```bash
@@ -25,7 +38,7 @@ curl -fsSL https://proxydl.lcayun.cn/https://gitee.com/q992218196/disk-status-ch
   | sudo bash -s -- --proxy-url
 ```
 
-`--proxy-url` 默认使用 `https://proxydl.lcayun.cn`，也可以写成兼容参数 `proxy_url`，或使用 `--proxy-url https://你的代理地址`。它会把安装器后续的 Gitee 下载地址转换为：
+`--proxy-url` 默认使用 `https://proxydl.lcayun.cn`，也可以写成兼容参数 `proxy_url`，或使用 `--proxy-url https://你的代理地址`。传入该参数会固定使用 Gitee，并把安装器后续的 Gitee 下载地址转换为：
 
 ```text
 https://proxydl.lcayun.cn/https://gitee.com/原始路径
@@ -148,3 +161,13 @@ curl -fsSL https://proxydl.lcayun.cn/https://gitee.com/q992218196/disk-status-ch
 - md RAID：成员状态含 `_` 或阵列 inactive 为异常；恢复、同步、reshape 等后台任务为警告。
 
 首次部署建议先执行 `--check --no-notify`，核对服务器控制器和磁盘型号的输出，再启用 Webhook 与 cron。
+
+## 同步到 Gitee 和 GitHub
+
+仓库的 `origin` 推送地址同时配置为 Gitee 和 GitHub。提交后执行一次下面的命令，两边都会更新：
+
+```bash
+git push origin main
+```
+
+拉取仍默认使用 Gitee；`github` 远端保留用于单独查看或拉取 GitHub。
