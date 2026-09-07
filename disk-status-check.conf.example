@@ -17,6 +17,12 @@ NOTIFY_COOLDOWN=3600
 DEBUG_NOTIFY=0
 STATE_FILE="/var/tmp/disk-status-check.state"
 
+# 脚本更新源：auto=中国大陆优先 Gitee、其他地区优先 GitHub；也可指定 gitee/github。
+UPDATE_SOURCE="auto"
+# 无法正确识别出口 IP 时可填写 CN、US 等两位国家代码；通常保持为空。
+UPDATE_COUNTRY_CODE=""
+UPDATE_TARGET="/usr/local/sbin/disk-status-check"
+
 # CentOS/RHEL 默认使用此 RPM；Debian 的 DEB/ZIP 均未配置时从它提取二进制。
 STORCLI_RPM_URL="https://tools.lcayun.cn/storcli/storcli-007.2310.0000.0000-1.noarch.rpm"
 

@@ -8,7 +8,7 @@
 - Broadcom/LSI MegaRAID 的控制器、虚拟盘、物理盘和缓存保护状态（`storcli`）
 - 其他品牌硬件 RAID 会明确提示“后端盘未覆盖”，不会假装检查正常
 
-默认仅在存在警告或异常时通过企业微信群机器人 Webhook 推送；相同告警默认一小时最多推送一次。`--debug` 模式会忽略冷却并在每次检测后推送，适合验证 Webhook。
+默认仅在存在警告或异常时通过企业微信群机器人 Webhook 推送；持续且内容不变的告警默认每小时重复推送一次，告警内容变化时立即推送。`--debug` 模式会忽略冷却并在每次检测后推送，适合验证 Webhook。
 
 ## curl 一键安装
 
@@ -88,6 +88,12 @@ sudo /usr/local/sbin/disk-status-check --install
 
 若已下载 Unified StorCLI ZIP，也可使用 `file:///绝对路径/xxx.zip` 作为 `STORCLI_ZIP_URL`；使用 ZIP 时请将 `STORCLI_DEB_URL` 设为空。
 
+监控查询统一向 StorCLI 传入 `nolog`，不会再在 cron 工作目录生成 `storcli.log`、`storcli.log.1` 等轮转文件。升级前遗留的这些文件仅是 StorCLI 命令日志，可在确认没有 StorCLI 命令运行后删除：
+
+```bash
+sudo rm -f /root/storcli.log /root/storcli.log.[0-9]*
+```
+
 ## 运行
 
 ```bash
@@ -105,6 +111,36 @@ echo $?
 
 ```bash
 sudo /usr/local/sbin/disk-status-check --check --no-notify
+```
+
+## 检查和安装更新
+
+查看当前版本：
+
+```bash
+/usr/local/sbin/disk-status-check --version
+```
+
+只检查是否有新版本，不修改文件：
+
+```bash
+/usr/local/sbin/disk-status-check --check-update
+```
+
+安装新版本：
+
+```bash
+sudo /usr/local/sbin/disk-status-check --update
+```
+
+更新功能根据公网 IP 自动选择下载源：中国大陆优先 Gitee，其他地区优先 GitHub；首选源失败会尝试备用源。下载完成后会检查脚本格式、Bash 语法和版本号，再原子替换程序文件。配置、cron、告警状态和依赖均会保留。
+
+可在 `/etc/disk-status-check.conf` 中设置：
+
+```bash
+UPDATE_SOURCE="auto"       # auto、gitee 或 github
+UPDATE_COUNTRY_CODE=""     # 可选，例如 CN、US
+UPDATE_TARGET="/usr/local/sbin/disk-status-check"
 ```
 
 ## 自定义 Webhook 主机名

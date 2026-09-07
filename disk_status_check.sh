@@ -4,7 +4,7 @@
 set -uo pipefail
 export LC_ALL=C
 
-VERSION="1.1.1"
+VERSION="1.2.0"
 DEFAULT_CONFIG_FILE="/etc/disk-status-check.conf"
 CONFIG_FILE="${DISK_CHECK_CONFIG:-$DEFAULT_CONFIG_FILE}"
 
@@ -21,6 +21,13 @@ NOTIFY_COOLDOWN="${NOTIFY_COOLDOWN:-3600}"
 STATE_FILE="${STATE_FILE:-/var/tmp/disk-status-check.state}"
 DEBUG_NOTIFY="${DEBUG_NOTIFY:-0}"
 
+# Script update settings. auto uses the public IP country: CN=Gitee, others=GitHub.
+UPDATE_SOURCE="${UPDATE_SOURCE:-auto}"
+UPDATE_COUNTRY_CODE="${DISK_CHECK_COUNTRY_CODE:-${UPDATE_COUNTRY_CODE:-}}"
+UPDATE_GITEE_URL="${UPDATE_GITEE_URL:-https://gitee.com/q992218196/disk-status-check/raw/main/disk_status_check.sh}"
+UPDATE_GITHUB_URL="${UPDATE_GITHUB_URL:-https://raw.githubusercontent.com/q992218196/disk-status-check/main/disk_status_check.sh}"
+UPDATE_TARGET="${UPDATE_TARGET:-/usr/local/sbin/disk-status-check}"
+
 MODE="check"
 NOTIFY=1
 
@@ -35,11 +42,15 @@ usage() {
 用法：
   disk_status_check.sh [--check] [--no-notify] [--debug] [--webhook URL]
   disk_status_check.sh --install
+  disk_status_check.sh --check-update
+  disk_status_check.sh --update
 
 选项：
   --check          执行一次检测（默认）
   --install        安装 smartmontools、nvme-cli、pciutils；检测到
                    Broadcom/LSI MegaRAID 时再安装 storcli
+  --check-update   检查是否有新版本，不修改文件
+  --update         检查并更新 /usr/local/sbin/disk-status-check
   --webhook URL    本次运行使用的企业微信机器人 Webhook
   --no-notify      只输出结果，不推送企业微信
   --debug          每次检测都推送 Webhook，忽略告警冷却（调试用）
@@ -69,6 +80,8 @@ while (($#)); do
     case "$1" in
         --check) MODE="check" ;;
         --install) MODE="install" ;;
+        --check-update) MODE="check-update" ;;
+        --update) MODE="update" ;;
         --no-notify) NOTIFY=0 ;;
         --debug) DEBUG_NOTIFY=1 ;;
         --webhook)
@@ -144,6 +157,175 @@ find_storcli() {
 download_file() {
     local url="$1" dest="$2"
     curl -fL --retry 2 --connect-timeout 10 --max-time 300 -o "$dest" "$url"
+}
+
+valid_country_code() {
+    [[ "${1:-}" =~ ^[A-Z]{2}$ && "$1" != "XX" ]]
+}
+
+detect_update_country() {
+    local body code
+
+    if [[ -n "$UPDATE_COUNTRY_CODE" ]]; then
+        code="${UPDATE_COUNTRY_CODE^^}"
+        valid_country_code "$code" && { printf '%s\n' "$code"; return 0; }
+        echo "无效的 UPDATE_COUNTRY_CODE：$UPDATE_COUNTRY_CODE" >&2
+        return 1
+    fi
+
+    code="$(curl -fsSL --connect-timeout 4 --max-time 8 'https://ipapi.co/country/' 2>/dev/null |
+        tr -d '[:space:]' | tr '[:lower:]' '[:upper:]' || true)"
+    valid_country_code "$code" && { printf '%s\n' "$code"; return 0; }
+
+    body="$(curl -fsSL --connect-timeout 4 --max-time 8 'https://www.cloudflare.com/cdn-cgi/trace' 2>/dev/null || true)"
+    code="$(awk -F= '$1 == "loc" {gsub(/[[:space:]\r]/, "", $2); print toupper($2); exit}' <<<"$body")"
+    valid_country_code "$code" && { printf '%s\n' "$code"; return 0; }
+
+    body="$(curl -fsSL --connect-timeout 4 --max-time 8 'https://api.country.is/' 2>/dev/null || true)"
+    code="$(sed -n 's/.*"country"[[:space:]]*:[[:space:]]*"\([A-Za-z][A-Za-z]\)".*/\1/p' <<<"$body" |
+        tr '[:lower:]' '[:upper:]')"
+    valid_country_code "$code" && { printf '%s\n' "$code"; return 0; }
+    return 1
+}
+
+select_update_urls() {
+    local source="${UPDATE_SOURCE,,}" country=""
+    UPDATE_URLS=()
+
+    case "$source" in
+        auto)
+            country="$(detect_update_country || true)"
+            if [[ "$country" == "CN" ]]; then
+                echo "[信息] 公网 IP 归属地：CN，优先从 Gitee 检查更新"
+                UPDATE_URLS=("$UPDATE_GITEE_URL" "$UPDATE_GITHUB_URL")
+            elif valid_country_code "$country"; then
+                echo "[信息] 公网 IP 归属地：$country，优先从 GitHub 检查更新"
+                UPDATE_URLS=("$UPDATE_GITHUB_URL" "$UPDATE_GITEE_URL")
+            else
+                echo "[警告] 无法识别公网 IP 归属地，优先尝试 Gitee" >&2
+                UPDATE_URLS=("$UPDATE_GITEE_URL" "$UPDATE_GITHUB_URL")
+            fi
+            ;;
+        gitee) UPDATE_URLS=("$UPDATE_GITEE_URL" "$UPDATE_GITHUB_URL") ;;
+        github) UPDATE_URLS=("$UPDATE_GITHUB_URL" "$UPDATE_GITEE_URL") ;;
+        *)
+            echo "无效的 UPDATE_SOURCE：$UPDATE_SOURCE（可选 auto、gitee、github）" >&2
+            return 2
+            ;;
+    esac
+}
+
+extract_script_version() {
+    awk -F'"' '/^VERSION="[0-9]/{print $2; exit}' "$1"
+}
+
+version_is_newer() {
+    local candidate="$1" current="$2" newest
+    [[ "$candidate" != "$current" ]] || return 1
+    newest="$(printf '%s\n%s\n' "$current" "$candidate" | sort -V | tail -n 1)"
+    [[ "$newest" == "$candidate" ]]
+}
+
+cleanup_update_temp() {
+    if [[ -n "${UPDATE_TMP_DIR:-}" && -d "$UPDATE_TMP_DIR" ]]; then
+        rm -rf -- "$UPDATE_TMP_DIR"
+    fi
+    UPDATE_TMP_DIR=""
+}
+
+prepare_update_candidate() {
+    local url remote_version
+    have curl || { echo "缺少 curl，无法检查更新；请先运行 --install" >&2; return 2; }
+    select_update_urls || return $?
+
+    UPDATE_TMP_DIR="$(mktemp -d /tmp/disk-status-check-update.XXXXXX)" || return 2
+    UPDATE_CANDIDATE="$UPDATE_TMP_DIR/disk-status-check"
+    UPDATE_REMOTE_VERSION=""
+    UPDATE_USED_URL=""
+
+    for url in "${UPDATE_URLS[@]}"; do
+        echo "[信息] 检查更新源：$url"
+        if ! download_file "$url" "$UPDATE_CANDIDATE"; then
+            echo "[警告] 更新源不可用，尝试备用源" >&2
+            continue
+        fi
+        if ! head -n 1 "$UPDATE_CANDIDATE" | grep -q '^#!/usr/bin/env bash'; then
+            echo "[警告] 下载内容不是预期的 Bash 脚本，尝试备用源" >&2
+            continue
+        fi
+        if ! bash -n "$UPDATE_CANDIDATE"; then
+            echo "[警告] 下载脚本语法检查失败，尝试备用源" >&2
+            continue
+        fi
+        remote_version="$(extract_script_version "$UPDATE_CANDIDATE")"
+        if [[ ! "$remote_version" =~ ^[0-9]+(\.[0-9]+){1,3}([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "[警告] 无法识别远端版本号，尝试备用源" >&2
+            continue
+        fi
+        UPDATE_REMOTE_VERSION="$remote_version"
+        UPDATE_USED_URL="$url"
+        return 0
+    done
+
+    echo "Gitee 和 GitHub 更新源均不可用" >&2
+    cleanup_update_temp
+    return 2
+}
+
+check_update() {
+    prepare_update_candidate || return $?
+    if version_is_newer "$UPDATE_REMOTE_VERSION" "$VERSION"; then
+        echo "发现新版本：$VERSION -> $UPDATE_REMOTE_VERSION"
+        echo "执行更新：sudo $0 --update"
+    elif [[ "$UPDATE_REMOTE_VERSION" == "$VERSION" ]]; then
+        echo "当前已是最新版本：$VERSION"
+    else
+        echo "当前版本 $VERSION 高于远端版本 $UPDATE_REMOTE_VERSION，不执行降级"
+    fi
+    echo "更新源：$UPDATE_USED_URL"
+    cleanup_update_temp
+}
+
+update_script() {
+    local target_dir staged
+    if [[ $EUID -ne 0 ]]; then
+        echo "更新脚本必须使用 root，例如：sudo $0 --update" >&2
+        return 2
+    fi
+    [[ "$UPDATE_TARGET" == /* ]] || {
+        echo "UPDATE_TARGET 必须是绝对路径：$UPDATE_TARGET" >&2
+        return 2
+    }
+
+    prepare_update_candidate || return $?
+    if [[ "$UPDATE_REMOTE_VERSION" == "$VERSION" ]]; then
+        echo "当前已是最新版本：$VERSION"
+        cleanup_update_temp
+        return 0
+    fi
+    if ! version_is_newer "$UPDATE_REMOTE_VERSION" "$VERSION"; then
+        echo "当前版本 $VERSION 高于远端版本 $UPDATE_REMOTE_VERSION，拒绝降级"
+        cleanup_update_temp
+        return 0
+    fi
+
+    target_dir="$(dirname "$UPDATE_TARGET")"
+    mkdir -p "$target_dir" || { cleanup_update_temp; return 2; }
+    staged="$target_dir/.disk-status-check.new.$$"
+    if ! install -m 0755 "$UPDATE_CANDIDATE" "$staged"; then
+        cleanup_update_temp
+        return 2
+    fi
+    if ! mv -f -- "$staged" "$UPDATE_TARGET"; then
+        rm -f -- "$staged"
+        cleanup_update_temp
+        return 2
+    fi
+
+    echo "更新完成：$VERSION -> $UPDATE_REMOTE_VERSION"
+    echo "安装位置：$UPDATE_TARGET"
+    echo "更新源：$UPDATE_USED_URL"
+    cleanup_update_temp
 }
 
 install_storcli_rpm() {
@@ -320,7 +502,7 @@ check_storcli() {
         return
     fi
 
-    output="$("$cli" show 2>&1)"
+    output="$("$cli" show nolog 2>&1)"
     rc=$?
     if ((rc != 0)); then
         error "storcli 执行失败（rc=$rc）：$(tail -n 1 <<<"$output")"
@@ -338,7 +520,7 @@ check_storcli() {
 
     local c state row bad_count os_drive
     for ((c = 0; c < controllers; c++)); do
-        controller_output="$("$cli" /c$c show 2>&1)"
+        controller_output="$("$cli" /c$c show nolog 2>&1)"
         rc=$?
         if ((rc != 0)) || grep -Eiq 'Status[[:space:]]*=[[:space:]]*(Failure|Failed)' <<<"$controller_output"; then
             error "RAID /c$c 查询失败"
@@ -350,7 +532,7 @@ check_storcli() {
             ok "RAID /c$c 控制器可访问"
         fi
 
-        vd_output="$("$cli" /c$c/vall show 2>&1)"
+        vd_output="$("$cli" /c$c/vall show nolog 2>&1)"
         rc=$?
         if ((rc != 0)); then
             error "RAID /c$c 虚拟盘查询失败"
@@ -371,7 +553,7 @@ check_storcli() {
         # StorCLI can expose the Linux block-device name for each virtual
         # drive. Remember it so the OS disk pass does not treat the virtual
         # disk as a directly attached SMART-capable physical disk.
-        vd_detail_output="$("$cli" /c$c/vall show all 2>&1)"
+        vd_detail_output="$("$cli" /c$c/vall show all nolog 2>&1)"
         if (($? == 0)); then
             while IFS= read -r os_drive; do
                 [[ "$os_drive" == /dev/* ]] || continue
@@ -384,7 +566,7 @@ check_storcli() {
             }' <<<"$vd_detail_output")
         fi
 
-        pd_output="$("$cli" /c$c/eall/sall show 2>&1)"
+        pd_output="$("$cli" /c$c/eall/sall show nolog 2>&1)"
         rc=$?
         if ((rc != 0)); then
             error "RAID /c$c 物理盘查询失败"
@@ -585,7 +767,7 @@ build_alert_text() {
 }
 
 notify_if_needed() {
-    local now hash old_hash="" old_time=0 old_status="ok" current status content debug_title
+    local now hash old_hash="" old_time=0 old_status="ok" current status content debug_title state_should_write=0
     NOTIFY_FAILED=0
     status="ok"
     current=""
@@ -629,17 +811,26 @@ notify_if_needed() {
     elif [[ "$status" == "alert" ]]; then
         if [[ "$hash" != "$old_hash" ]] || ((now - old_time >= NOTIFY_COOLDOWN)); then
             content="$(build_alert_text "磁盘监控告警")"
-            send_wecom "$content" || NOTIFY_FAILED=1
+            if send_wecom "$content"; then
+                state_should_write=1
+            else
+                NOTIFY_FAILED=1
+            fi
         else
             info "告警未变化且仍在冷却期内，不重复推送"
         fi
     else
         info "检测结果无警告/异常，不推送企业微信"
+        # Record a recovery once so the same alert will notify immediately
+        # if it appears again. Repeated healthy checks do not refresh state.
+        [[ "$old_status" != "ok" ]] && state_should_write=1
     fi
 
-    # Debug pushes do not alter production alert-deduplication state.
-    if [[ -n "$STATE_FILE" && -n "$WECOM_WEBHOOK_URL" && $NOTIFY -eq 1 &&
-          $DEBUG_NOTIFY -eq 0 && $NOTIFY_FAILED -eq 0 ]]; then
+    # Debug pushes do not alter production alert-deduplication state. Most
+    # importantly, a suppressed alert must retain the last successful send
+    # time; otherwise a frequent cron job creates a sliding cooldown forever.
+    if ((state_should_write)) && [[ -n "$STATE_FILE" && -n "$WECOM_WEBHOOK_URL" &&
+          $NOTIFY -eq 1 && $DEBUG_NOTIFY -eq 0 && $NOTIFY_FAILED -eq 0 ]]; then
         umask 077
         printf '%s|%s|%s\n' "$hash" "$now" "$status" > "$STATE_FILE" 2>/dev/null || true
     fi
@@ -677,10 +868,10 @@ main_check() {
     return 0
 }
 
-detect_os
-if [[ "$MODE" == "install" ]]; then
-    install_dependencies
-else
-    main_check
-fi
+case "$MODE" in
+    install) install_dependencies ;;
+    check-update) check_update ;;
+    update) update_script ;;
+    *) main_check ;;
+esac
 
